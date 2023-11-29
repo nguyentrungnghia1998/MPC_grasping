@@ -110,7 +110,7 @@ saved_data/
  
 *.pyc
  
-data/
+/data/
 logs/
 trained-models/grasp_det_seg
 weights/RAGT-3-3.pth
