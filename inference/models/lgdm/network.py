@@ -105,6 +105,7 @@ class LGDM(LanguageGraspModel):
         img = F.relu(self.convt1(img))
         img = F.relu(self.convt2(img))
         img = F.relu(self.convt3(img))
+        
 
         pos_output = self.pos_output(img)
         cos_output = self.cos_output(img)

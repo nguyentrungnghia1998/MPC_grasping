@@ -104,7 +104,7 @@ class RefferenceVisionLanguage(LanguageGraspModel):
         img = F.relu(self.conv3(img))
  
         # Combine textual features with the visual features
-        img = torch.clone(img).detach() + y
+        # img = torch.clone(img).detach() + y
  
         img = img.view(-1, 8*19*19)
         img = F.relu(self.fc1(img))

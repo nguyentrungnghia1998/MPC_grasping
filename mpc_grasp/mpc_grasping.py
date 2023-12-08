@@ -6,13 +6,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from .system_identification import SystemIdentification, TimeEmbedding
-from .controller import Controller
+from .controller import Controller, Decoder
 from .ablef import RefferenceVisionLanguage
 import numpy as np
 from tqdm import tqdm
+from inference.models.grasp_model import LanguageGraspModel
  
 # Define the model
-class MPC_Grasping_Detection(nn.Module):
+class MPC_Grasping_Detection(LanguageGraspModel):
    
         def __init__(self, input_channels, reff_dim, state_dim, control_dim, time_dim, hidden_dim, dropout, prob, channel_size, time_step):
             super(MPC_Grasping_Detection, self).__init__()
@@ -30,6 +31,21 @@ class MPC_Grasping_Detection(nn.Module):
            
             # Define the system identification model
             self.system_identification = SystemIdentification(reff_dim, state_dim, control_dim, time_dim, hidden_dim)
+
+            self.encoder = nn.Sequential(
+                nn.Conv2d(4, 16, kernel_size=3, stride=1, padding=1),  # CNN layer with 16 output channels
+                nn.ReLU(),  # ReLU activation function
+                nn.MaxPool2d(kernel_size=2, stride=2),  # Max pooling layer
+                nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),  # CNN layer with 32 output channels
+                nn.ReLU(),  # ReLU activation function
+                nn.MaxPool2d(kernel_size=2, stride=2),  # Max pooling layer
+                nn.Flatten(),  # Flatten the input tensor
+                nn.Linear(32 * 56 * 56, 512)  # Linear layer to convert to (N, 512)
+            )
+
+            self.decoder = Decoder()
+
+            self.traj_control = nn.GRUCell(input_size=512, hidden_size=768)        
            
             # Define the controller model
             self.controller = Controller(reff_dim, state_dim, control_dim, time_dim, hidden_dim)
@@ -38,14 +54,22 @@ class MPC_Grasping_Detection(nn.Module):
             # Define the time embedding model
             self.time_embedding = TimeEmbedding(time_dim, time_step)
    
-        def forward(self, x_old, t ,img, query, alpha, idx):
+        def forward(self ,img, query, alpha, idx):
             img = self.refference(None, img, None, query, alpha, idx)
-            time = self.time_embedding(t)
-            u = self.controller(x_old, img, time)
-            x_old = self.system_identification(x_old, u, img, time)
-            return x_old, u
-       
- 
+            z = img
+            output_wp = list()
+            traj_hidden_state = list()
+            x = self.decoder(z)
+            for i in range(self.time_step):
+                x_in = self.encoder(x)
+                z = self.traj_control(x_in, z)
+                traj_hidden_state.append(z)
+                x = self.decoder(z)
+                output_wp.append(x)
+            
+            return img, output_wp
+
+
         def initial_state(self, batch_size, device):
             # Return a tensor of size (batch_size, state_dim)
             # x, y, w, h, theta
@@ -53,12 +77,15 @@ class MPC_Grasping_Detection(nn.Module):
             # w and h are the width and height of the object, w and h are in the range of [0, 1]
             # theta is the angle of the object, theta is in the range of [-pi, pi]
             # use uniform distribution to generate x, y, w, h, theta
-            x = torch.randn(batch_size, 1, device=device)
-            y = torch.randn(batch_size, 1, device=device)
-            w = torch.randn(batch_size, 1, device=device)
-            h = torch.randn(batch_size, 1, device=device)
-            theta = torch.randn(batch_size, 1, device=device)
-            return torch.cat((x, y, w, h, theta), 1)
+            shape = (batch_size, 4, 224, 224)
+            tensor = torch.rand(shape)
+
+        # Assign values to each channel
+            tensor[:, 0, :, :] = torch.rand(batch_size, 224, 224)  # pos_image (channel 0)
+            tensor[:, 1, :, :] = torch.rand(batch_size, 224, 224) * 2 - 1  # cos_image (channel 1)
+            tensor[:, 2, :, :] = torch.rand(batch_size, 224, 224) * 2 - 1  # sin_image (channel 2)
+            tensor[:, 3, :, :] = torch.rand(batch_size, 224, 224)  # width_image (channel 3)
+            return tensor.to(device)
  
         # Get output of the system identification model to input for next time step
         # Initial state is a tensor of size (batch_size, state_dim)
@@ -91,28 +118,31 @@ class MPC_Grasping_Detection(nn.Module):
  
             return x_old
        
-        def compute_loss(self, x_label, x_pred, u_pred):
+        def compute_loss(self, label, output):
            
  
- 
-            # if sample is None:
-            #     pos_pred, cos_pred, sin_pred, width_pred = self.pos_output_str, self.cos_output_str, self.sin_output_str, self.width_output_str
-            # else:
-            #     pos_pred = sample
-            #     cos_pred, sin_pred, width_pred = self.cos_output_str, self.sin_output_str, self.width_output_str
-            x_loss = F.mse_loss(torch.sigmoid(x_label), x_pred)
-            u_loss = F.mse_loss(u_pred, torch.zeros_like(u_pred, device=u_pred.device))
- 
-            # Get contrastive loss
-            # contr_loss = self._get_contrastive_loss(self.full_image_atts.to(y_pos.device), y_pos)
- 
+            predict = output[-1]
+            pos_label, cos_label, sin_label, width_label = label
+
+            cos_loss = F.mse_loss(predict[:,1,:,:].unsqueeze(dim = 1), cos_label)
+            sin_loss = F.mse_loss(predict[:,2,:,:].unsqueeze(dim = 1), sin_label)
+            width_loss = F.mse_loss(predict[:,3,:,:].unsqueeze(dim = 1), width_label)
+
+            pos_loss = F.mse_loss(predict[:,0,:,:].unsqueeze(dim = 1), pos_label)
+
             return {
-                'loss': x_loss,
-                'losses': {
-                    'x_loss': x_loss,
-                    'u_loss': u_loss
-                },
-                'pred': {
-                    'x_pred': x_pred,
-                }
+            'loss': pos_loss + cos_loss + sin_loss + width_loss,
+            'losses': {
+                'p_loss': pos_loss,
+                'cos_loss': cos_loss,
+                'sin_loss': sin_loss,
+                'width_loss': width_loss,
+                # 'contr_loss': contr_loss,
+            },
+            'pred': {
+                'pos': predict[:,0,:,:].unsqueeze(dim = 1),
+                'cos': predict[:,1,:,:].unsqueeze(dim = 1),
+                'sin': predict[:,2,:,:].unsqueeze(dim = 1),
+                'width': predict[:,3,:,:].unsqueeze(dim = 1)
             }
+        }

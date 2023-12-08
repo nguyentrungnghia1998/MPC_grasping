@@ -36,7 +36,7 @@ class MyDataset(Dataset):
         queries = label[1]
         query = queries[int(object)]
         pose = poses[0][1:]
-        pose[:-1] = pose[:-1]/image.shape[1]
+        pose[:-1] = pose[:-1]/416.0
         pose[-1] = pose[-1]/180.0
  
         return torch.FloatTensor(image), query, torch.FloatTensor(pose)
