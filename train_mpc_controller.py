@@ -69,7 +69,7 @@ def parse_args():
                         help='Batch size')
     parser.add_argument('--epochs', type=int, default=50,
                         help='Training epochs')
-    parser.add_argument('--batches-per-epoch', type=int, default=300,
+    parser.add_argument('--batches-per-epoch', type=int, default=150,
                         help='Batches per Epoch')
     parser.add_argument('--optim', type=str, default='adam',
                         help='Optmizer for the training. (adam or SGD)')
@@ -104,31 +104,30 @@ def validate(net, device, val_data, iou_threshold):
     :return: Successes, Failures and Losses
     """
     net.eval()
- 
-   
- 
+
+
     results = {
         'correct': 0,
         'failed': 0,
-        'sum': 0,
+        'loss': 0,
+        'losses': {
+
+        }
     }
- 
+
     ld = len(val_data)
- 
+
     with torch.no_grad():
-        for img, query, poses in tqdm(val_data):
-            img = img.to(device)
- 
+        for x, y, didx, rot, zoom_factor, prompt, query in val_data:
+            img = x.to(device)
+            yc = [yy.to(device) for yy in y]
+            pos_gt = yc[0]
+
             alpha = 0.4
             idx = torch.ones(img.shape[0]).to(device)
- 
-   
-            x0 = net.initial_state(img.shape[0],device)
-            output = net.get_output(x0, img, query, alpha, idx)
-            output = torch.sigmoid(output)
-            output = output.detach().cpu()
- 
- 
+
+            _, output = net(img, query, alpha, idx)
+
             # sample = sample_fn(
             #     net,
             #     pos_gt.shape,
@@ -138,22 +137,32 @@ def validate(net, device, val_data, iou_threshold):
             #     alpha,
             #     idx,
             # )
- 
- 
-            iou_coef = iou(output, poses)
- 
-            delta_angle = torch.abs(output[:,-1] - poses[:,-1])*180
- 
-            iou_coef_mask = iou_coef > 0.25
-            delta_angle_mask = delta_angle < 30
- 
-            mask = iou_coef_mask & delta_angle_mask
- 
-            results["correct"] += torch.sum(mask).item()
-            results["sum"] += mask.shape[0]
- 
-    results["failed"] = results['sum'] - results["correct"]
- 
+
+            lossd = net.compute_loss(yc, output)
+            loss = lossd['loss']
+
+            results['loss'] += loss.item() / ld
+            for ln, l in lossd['losses'].items():
+                if ln not in results['losses']:
+                    results['losses'][ln] = 0
+                results['losses'][ln] += l.item() / ld
+
+            q_out, ang_out, w_out = post_process_output(lossd['pred']['pos'], lossd['pred']['cos'],
+                                                        lossd['pred']['sin'], lossd['pred']['width'])
+
+            s = evaluation.calculate_iou_match(q_out,
+                                               ang_out,
+                                               val_data.dataset.get_gtbb(didx, rot, zoom_factor),
+                                               no_grasps=1,
+                                               grasp_width=w_out,
+                                               threshold=iou_threshold
+                                               )
+
+            if s:
+                results['correct'] += 1
+            else:
+                results['failed'] += 1
+
     return results
  
 def iou(predict, target):
@@ -217,32 +226,45 @@ def train(epoch, net, device, train_data, optimizer, batches_per_epoch, vis=Fals
     batch_idx = 0
     # Use batches per epoch to make training on different sized datasets (cornell/jacquard) more equivalent.
     while batch_idx <= batches_per_epoch:
-        for img, query, poses in train_data:
+        for x, y, _, _, _, prompt, query in train_data:
             batch_idx += 1
             if batch_idx >= batches_per_epoch:
                 break
- 
-            img = img.to(device)
-            poses = poses.to(device)
- 
+
+            img = x.to(device)
+            yc = [yy.to(device) for yy in y]
+            pos_gt = y[0]
+
             if epoch>0:
                 alpha = 0.4
             else:
                 alpha = 0.4*min(1,batch_idx/len(train_data))
             idx = torch.zeros(img.shape[0]).to(device)
-            x0 = net.initial_state(img.shape[0],device)
-            t = torch.randint(0, 20, size = (img.shape[0], 1), device=device)
-           
-            x_pred, u_pred = net(x0, t, img, query, alpha, idx)
+
+            # Calculate loss
+            # compute_losses = functools.partial(
+            #     diffusion.training_losses,
+            #     net,
+            #     pos_gt,
+            #     img,
+            #     t,  # [bs](int) sampled timesteps
+            #     query,
+            #     alpha,
+            #     idx,
+            # )
+            # losses = compute_losses()
+            # loss = (losses["loss"] * weights).mean()
+
+            _, output = net(img, query, alpha, idx)
  
             # Backward loss
             # mp_trainer.backward(loss)
             # mp_trainer.optimize(optimizer)
  
-            lossd = net.compute_loss(poses, x_pred, u_pred)
+            lossd = net.compute_loss(yc, output)
             loss = lossd['loss']
  
-            if batch_idx % 50 == 0:
+            if batch_idx % 10 == 0:
                 logging.info('Epoch: {}, Batch: {}, Loss: {:0.4f}'.format(epoch, batch_idx, loss.mean().item()))
  
             results['loss'] += loss
@@ -303,8 +325,16 @@ def run():
     # Load Dataset
     logging.info('Loading {} Dataset...'.format(args.dataset.title()))
     # Dataset = get_dataset(args.dataset)
-    Dataset = MyDataset
-    dataset = Dataset(args.dataset_path,args.add_file_path)
+    Dataset = get_dataset(args.dataset)
+    dataset = Dataset(args.dataset_path,
+                      output_size=args.input_size,
+                      ds_rotate=args.ds_rotate,
+                      random_rotate=True,
+                      random_zoom=True,
+                      include_depth=args.use_depth,
+                      include_rgb=args.use_rgb,
+                      seen=args.seen,
+                      add_file_path=args.add_file_path)
     logging.info('Dataset size is {}'.format(dataset.length))
  
     # Creating data indices for training and validation splits
@@ -329,9 +359,9 @@ def run():
     )
     val_data = torch.utils.data.DataLoader(
         dataset,
-        batch_size=args.batch_size,
+        batch_size=1,
         num_workers=args.num_workers,
-        sampler=val_sampler
+        sampler=train_sampler
     )
     logging.info('Done')
  

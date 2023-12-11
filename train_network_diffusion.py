@@ -35,7 +35,7 @@ def parse_args():
                         help='Network name in inference/models')
     parser.add_argument('--input-size', type=int, default=224,
                         help='Input image size for the network')
-    parser.add_argument('--use-depth', type=int, default=1,
+    parser.add_argument('--use-depth', type=int, default=0,
                         help='Use Depth image for training (1/0)')
     parser.add_argument('--use-rgb', type=int, default=1,
                         help='Use RGB image for training (1/0)')
@@ -49,9 +49,9 @@ def parse_args():
                         help='Threshold for IOU matching')
 
     # Datasets
-    parser.add_argument('--dataset', type=str,
+    parser.add_argument('--dataset', type=str, default = "grasp-anywhere",
                         help='Dataset Name ("cornell" or "jaquard")')
-    parser.add_argument('--dataset-path', type=str,
+    parser.add_argument('--dataset-path', type=str, default = "data/grasp-anything",
                         help='Path to dataset')
     parser.add_argument('--split', type=float, default=0.9,
                         help='Fraction of data for training (remainder is validation)')
@@ -67,7 +67,7 @@ def parse_args():
                         help='Batch size')
     parser.add_argument('--epochs', type=int, default=50,
                         help='Training epochs')
-    parser.add_argument('--batches-per-epoch', type=int, default=1000,
+    parser.add_argument('--batches-per-epoch', type=int, default=10,
                         help='Batches per Epoch')
     parser.add_argument('--optim', type=str, default='adam',
                         help='Optmizer for the training. (adam or SGD)')
@@ -85,7 +85,7 @@ def parse_args():
                         help='Random seed for numpy')
     parser.add_argument('--seen', type=int, default=1,
                         help='Flag for using seen classes, only work for Grasp-Anything dataset') 
-    parser.add_argument('--add-file-path', type=str, default='data/grasp-anywhere',
+    parser.add_argument('--add-file-path', type=str, default='data/grasp-anywhere/seen',
                         help='Specific for Grasp-Anywhere')
     
     args = parser.parse_args()
