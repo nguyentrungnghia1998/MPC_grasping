@@ -44,14 +44,14 @@ class SystemIdentification(nn.Module):
  
     def __init__(self, reff_dim, state_dim, control_dim, time_dim, hidden_dim):
         super(SystemIdentification, self).__init__()
-        self.fc1 = nn.Linear(reff_dim + state_dim + control_dim + time_dim, hidden_dim)
+        self.fc1 = nn.Linear(reff_dim + state_dim + control_dim, hidden_dim)
         self.bn1 = nn.BatchNorm1d(hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.bn2 = nn.BatchNorm1d(hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, state_dim)
  
-    def forward(self, x, u, r, t):
-        y = torch.cat((x, u, r, t), 1)
+    def forward(self, x, u, r):
+        y = torch.cat((x, u, r), 1)
         y = F.relu(self.bn1(self.fc1(y)))
         y = F.relu(self.bn2(self.fc2(y)))
         y = self.fc3(y)

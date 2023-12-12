@@ -45,7 +45,7 @@ class MPC_Grasping_Detection(LanguageGraspModel):
 
             self.decoder = Decoder()
 
-            self.traj_control = nn.GRUCell(input_size=512, hidden_size=768)        
+            # self.traj_control = nn.GRUCell(input_size=512, hidden_size=768)        
            
             # Define the controller model
             self.controller = Controller(reff_dim, state_dim, control_dim, time_dim, hidden_dim)
@@ -56,17 +56,13 @@ class MPC_Grasping_Detection(LanguageGraspModel):
    
         def forward(self ,img, query, alpha, idx):
             img = self.refference(None, img, None, query, alpha, idx)
-            z = img
+            x = self.initial_state(img.shape[0], img.device)
             output_wp = list()
-            traj_hidden_state = list()
-            x = self.decoder(z)
             for i in range(self.time_step):
-                x_in = self.encoder(x)
-                z = self.traj_control(x_in, z)
-                traj_hidden_state.append(z)
-                x = self.decoder(z)
-                output_wp.append(x)
-            
+                u = self.controller(x, img)
+                x = self.system_identification(x, u, img)
+                x_out = self.decoder(x)
+                output_wp.append(x_out)
             return img, output_wp
 
 
@@ -77,14 +73,9 @@ class MPC_Grasping_Detection(LanguageGraspModel):
             # w and h are the width and height of the object, w and h are in the range of [0, 1]
             # theta is the angle of the object, theta is in the range of [-pi, pi]
             # use uniform distribution to generate x, y, w, h, theta
-            shape = (batch_size, 4, 224, 224)
-            tensor = torch.rand(shape)
+            tensor = torch.randn(size = (batch_size, 768))
 
         # Assign values to each channel
-            tensor[:, 0, :, :] = torch.rand(batch_size, 224, 224)  # pos_image (channel 0)
-            tensor[:, 1, :, :] = torch.rand(batch_size, 224, 224) * 2 - 1  # cos_image (channel 1)
-            tensor[:, 2, :, :] = torch.rand(batch_size, 224, 224) * 2 - 1  # sin_image (channel 2)
-            tensor[:, 3, :, :] = torch.rand(batch_size, 224, 224)  # width_image (channel 3)
             return tensor.to(device)
  
         # Get output of the system identification model to input for next time step

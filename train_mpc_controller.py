@@ -53,7 +53,7 @@ def parse_args():
     # Datasets
     parser.add_argument('--dataset', type=str, default="grasp-anywhere",
                         help='Dataset Name ("cornell" or "jaquard")')
-    parser.add_argument('--dataset-path', type=str, default = "data/grasp-anything/",
+    parser.add_argument('--dataset-path', type=str, default = "/cm/shared/nghiant100/data_MPC/data/grasp-anything/",
                         help='Path to dataset')
     parser.add_argument('--split', type=float, default=0.9,
                         help='Fraction of data for training (remainder is validation)')
@@ -69,7 +69,7 @@ def parse_args():
                         help='Batch size')
     parser.add_argument('--epochs', type=int, default=50,
                         help='Training epochs')
-    parser.add_argument('--batches-per-epoch', type=int, default=150,
+    parser.add_argument('--batches-per-epoch', type=int, default=300,
                         help='Batches per Epoch')
     parser.add_argument('--optim', type=str, default='adam',
                         help='Optmizer for the training. (adam or SGD)')
@@ -77,7 +77,7 @@ def parse_args():
     # Logging etc.
     parser.add_argument('--description', type=str, default='',
                         help='Training description')
-    parser.add_argument('--logdir', type=str, default='logs/',
+    parser.add_argument('--logdir', type=str, default='/cm/shared/nghiant100/data_MPC/logs/',
                         help='Log directory')
     parser.add_argument('--vis', action='store_true',
                         help='Visualise the training process')
@@ -87,7 +87,7 @@ def parse_args():
                         help='Random seed for numpy')
     parser.add_argument('--seen', type=int, default=1,
                         help='Flag for using seen classes, only work for Grasp-Anything dataset')
-    parser.add_argument('--add-file-path', type=str, default='data/grasp-anywhere/seen',
+    parser.add_argument('--add-file-path', type=str, default='/cm/shared/nghiant100/data_MPC/data/grasp-anywhere/seen',
                         help='Specific for Grasp-Anywhere')
    
     args = parser.parse_args()
@@ -264,7 +264,7 @@ def train(epoch, net, device, train_data, optimizer, batches_per_epoch, vis=Fals
             lossd = net.compute_loss(yc, output)
             loss = lossd['loss']
  
-            if batch_idx % 10 == 0:
+            if batch_idx % 25 == 0:
                 logging.info('Epoch: {}, Batch: {}, Loss: {:0.4f}'.format(epoch, batch_idx, loss.mean().item()))
  
             results['loss'] += loss
@@ -371,8 +371,8 @@ def run():
     network = get_network(args.network)
     net = network(input_channels=input_channels,
                     reff_dim=768,
-                    state_dim=5,
-                    control_dim=128,
+                    state_dim=768,
+                    control_dim=768,
                     time_dim=64,
                     hidden_dim=512,
                     dropout=args.use_dropout,
