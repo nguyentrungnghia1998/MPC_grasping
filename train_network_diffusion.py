@@ -199,7 +199,7 @@ def train(epoch, net, diffusion, schedule_sampler, device, train_data, optimizer
             fp16_scale_growth=fp16_scale_growth,
     )
     optimizer = AdamW(
-        mp_trainer.master_params, lr=1e-3
+        mp_trainer.master_params, lr=1e-4,
     )
 
     net.train()
