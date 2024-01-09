@@ -25,6 +25,7 @@ from utils.data import get_dataset
 from utils.dataset_processing import evaluation
 from utils.visualisation.gridshow import gridshow
 from utils.model_util import create_diffusion
+from tqdm import tqdm
 
 
 def parse_args():
@@ -63,7 +64,7 @@ def parse_args():
                         help='Dataset workers')
 
     # Training
-    parser.add_argument('--batch-size', type=int, default=8,
+    parser.add_argument('--batch-size', type=int, default=32,
                         help='Batch size')
     parser.add_argument('--epochs', type=int, default=50,
                         help='Training epochs')
@@ -119,7 +120,7 @@ def validate(net, diffusion, schedule_sampler, device, val_data, iou_threshold):
     ld = len(val_data)
 
     with torch.no_grad():
-        for x, y, didx, rot, zoom_factor, prompt, query in val_data:
+        for x, y, didx, rot, zoom_factor, prompt, query in tqdm(val_data):
             img = x.to(device)
             yc = [yy.to(device) for yy in y]
             yc = torch.cat(yc, dim = 1)
@@ -151,21 +152,23 @@ def validate(net, diffusion, schedule_sampler, device, val_data, iou_threshold):
                     results['losses'][ln] = 0
                 results['losses'][ln] += l.item() / ld
 
-            q_out, ang_out, w_out = post_process_output(lossd['pred']['pos'], lossd['pred']['cos'],
-                                                        lossd['pred']['sin'], lossd['pred']['width'])
+            for i in range(yc.shape[0]):
 
-            s = evaluation.calculate_iou_match(q_out,
-                                               ang_out,
-                                               val_data.dataset.get_gtbb(didx, rot, zoom_factor),
-                                               no_grasps=1,
-                                               grasp_width=w_out,
-                                               threshold=iou_threshold
-                                               )
+                q_out, ang_out, w_out = post_process_output(lossd['pred']['pos'][i].unsqueeze(0), lossd['pred']['cos'][i].unsqueeze(0),
+                                                            lossd['pred']['sin'][i].unsqueeze(0), lossd['pred']['width'][i].unsqueeze(0))
 
-            if s:
-                results['correct'] += 1
-            else:
-                results['failed'] += 1
+                s = evaluation.calculate_iou_match(q_out,
+                                                ang_out,
+                                                val_data.dataset.get_gtbb(didx[i], rot[i], zoom_factor[i]),
+                                                no_grasps=1,
+                                                grasp_width=w_out,
+                                                threshold=iou_threshold
+                                                )
+
+                if s:
+                    results['correct'] += 1
+                else:
+                    results['failed'] += 1
 
     return results
 
@@ -339,7 +342,7 @@ def run():
     )
     val_data = torch.utils.data.DataLoader(
         dataset,
-        batch_size=1,
+        batch_size=args.batch_size,
         num_workers=args.num_workers,
         sampler=val_sampler
     )
