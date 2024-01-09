@@ -244,6 +244,7 @@ def train(epoch, net, diffusion, schedule_sampler, device, train_data, optimizer
 
 
             # Backward loss
+            mp_trainer.zero_grad()
             mp_trainer.backward(loss)
             mp_trainer.optimize(optimizer)
 
