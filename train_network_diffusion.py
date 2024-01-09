@@ -67,7 +67,7 @@ def parse_args():
                         help='Batch size')
     parser.add_argument('--epochs', type=int, default=50,
                         help='Training epochs')
-    parser.add_argument('--batches-per-epoch', type=int, default=10,
+    parser.add_argument('--batches-per-epoch', type=int, default=1,
                         help='Batches per Epoch')
     parser.add_argument('--optim', type=str, default='adam',
                         help='Optmizer for the training. (adam or SGD)')
@@ -122,24 +122,27 @@ def validate(net, diffusion, schedule_sampler, device, val_data, iou_threshold):
         for x, y, didx, rot, zoom_factor, prompt, query in val_data:
             img = x.to(device)
             yc = [yy.to(device) for yy in y]
-            pos_gt = yc[0]
+            yc = torch.cat(yc, dim = 1)
 
             alpha = 0.4
             idx = torch.ones(img.shape[0]).to(device)
 
-            pos_output, cos_output, sin_output, width_output = net(None, img, None, query, alpha, idx)
+            # pos_output, cos_output, sin_output, width_output = net(None, img, None, query, alpha, idx)
 
-            # sample = sample_fn(
-            #     net,
-            #     pos_gt.shape,
-            #     pos_gt,
-            #     img,
-            #     query,
-            #     alpha,
-            #     idx,
-            # )
+            sample = sample_fn(
+                net,
+                yc.shape,
+                yc,
+                img,
+                query,
+                alpha,
+                idx,
+            )
 
-            lossd = net.compute_loss(yc, pos_output, cos_output, sin_output, width_output)
+
+
+            
+            lossd = net.compute_loss(yc, sample)
             loss = lossd['loss']
 
             results['loss'] += loss.item() / ld
@@ -213,7 +216,7 @@ def train(epoch, net, diffusion, schedule_sampler, device, train_data, optimizer
 
             img = x.to(device)
             yc = [yy.to(device) for yy in y]
-            pos_gt = yc[0]
+            yc = torch.cat(yc, dim = 1)
 
             if epoch>0:
                 alpha = 0.4
@@ -223,44 +226,41 @@ def train(epoch, net, diffusion, schedule_sampler, device, train_data, optimizer
             t, weights = schedule_sampler.sample(img.shape[0], device)
 
             # Calculate loss
-            # compute_losses = functools.partial(
-            #     diffusion.training_losses,
-            #     net,
-            #     pos_gt,
-            #     img,
-            #     t,  # [bs](int) sampled timesteps
-            #     query,
-            #     alpha,
-            #     idx,
-            # )
-            # losses = compute_losses()
-            # loss = (losses["loss"] * weights).mean()
+            compute_losses = functools.partial(
+                diffusion.training_losses,
+                net,
+                yc,
+                img,
+                t,  # [bs](int) sampled timesteps
+                query,
+                alpha,
+                idx,
+            )
+            losses = compute_losses()
+            loss = (losses["loss"] * weights).mean()
 
-            pos_output, cos_output, sin_output, width_output = net(None, img, None, query, alpha, idx)
 
             # Backward loss
-            # mp_trainer.backward(loss)
-            # mp_trainer.optimize(optimizer)
+            mp_trainer.backward(loss)
+            mp_trainer.optimize(optimizer)
 
-            lossd = net.compute_loss(yc, pos_output, cos_output, sin_output, width_output)
-            loss = lossd['loss']
 
-            if batch_idx % 100 == 0:
+            if batch_idx % 10 == 0:
                 logging.info('Epoch: {}, Batch: {}, Loss: {:0.4f}'.format(epoch, batch_idx, loss.mean().item()))
 
             results['loss'] += loss
-            for ln, l in lossd['losses'].items():
-                if ln not in results['losses']:
-                    results['losses'][ln] = 0
-                results['losses'][ln] += l.item()
+            # for ln, l in lossd['losses'].items():
+            #     if ln not in results['losses']:
+            #         results['losses'][ln] = 0
+            #     results['losses'][ln] += l.item()
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            # mp_trainer.zero_grad()
+            # mp_trainer.backward(loss)
+            # mp_trainer.optimize(optimizer)
 
     results['loss'] /= batch_idx
-    for l in results['losses']:
-        results['losses'][l] /= batch_idx
+    # for l in results['losses']:
+    #     results['losses'][l] /= batch_idx
 
     return results
 

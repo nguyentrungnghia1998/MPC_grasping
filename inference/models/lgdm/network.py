@@ -10,6 +10,7 @@ from inference.models.grasp_model import LanguageGraspModel
 import inference.models.lgdm.albef.utils as utils
 from inference.models.lgdm.albef.models.tokenization_bert import BertTokenizer
 from inference.models.lgdm.albef.models.model_retrieval import ALBEF
+from diffusion.unet import UNetModel
 
 filter_sizes = [32, 16, 8, 8, 16, 32]
 kernel_sizes = [9, 5, 3, 3, 5, 9]
@@ -26,10 +27,11 @@ class LGDM(LanguageGraspModel):
         self.conv1 = nn.Conv2d(input_channels, filter_sizes[0], kernel_sizes[0], stride=strides[0], padding=3)
         self.conv2 = nn.Conv2d(filter_sizes[0], filter_sizes[1], kernel_sizes[1], stride=strides[1], padding=2)
         self.conv3 = nn.Conv2d(filter_sizes[1], filter_sizes[2], kernel_sizes[2], stride=strides[2], padding=1)
-        self.convt1 = nn.ConvTranspose2d(filter_sizes[2], filter_sizes[3], kernel_sizes[3], stride=strides[3], padding=1, output_padding=1)
-        self.convt2 = nn.ConvTranspose2d(filter_sizes[3], filter_sizes[4], kernel_sizes[4], stride=strides[4], padding=2, output_padding=1)
-        self.convt3 = nn.ConvTranspose2d(filter_sizes[4], filter_sizes[5], kernel_sizes[5], stride=strides[5], padding=5, output_padding=1)
-
+        # self.convt1 = nn.ConvTranspose2d(filter_sizes[2], filter_sizes[3], kernel_sizes[3], stride=strides[3], padding=1, output_padding=1)
+        # self.convt2 = nn.ConvTranspose2d(filter_sizes[3], filter_sizes[4], kernel_sizes[4], stride=strides[4], padding=2, output_padding=1)
+        # self.convt3 = nn.ConvTranspose2d(filter_sizes[4], filter_sizes[5], kernel_sizes[5], stride=strides[5], padding=5, output_padding=1)
+        self.fc1 = nn.Linear(2888, 1024)
+        self.fc2 = nn.Linear(1024, channel_size*4)
         self.y_flatten = nn.Sequential(
             nn.Linear(768, 1024),
             nn.GELU(),
@@ -37,6 +39,25 @@ class LGDM(LanguageGraspModel):
             nn.GELU(),
             # nn.Linear(2048, 2888),
             # nn.GELU(),
+        )
+        # Define U-Net model for Diffusion Model, config same as stable diffusion
+        self.unet = UNetModel(
+            image_size=224,
+            in_channels=4,
+            model_channels=channel_size,
+            out_channels=4,
+            num_res_blocks=2,
+            attention_resolutions=tuple([14]),
+            dropout=dropout,
+            channel_mult=(1,1,2,2,4,4),
+            use_checkpoint=False,
+            use_fp16=False,
+            num_heads=1,
+            num_head_channels=-1,
+            num_heads_upsample=-1,
+            use_scale_shift_norm=False,
+            resblock_updown=False,
+            use_new_attention_order=False
         )
         
         self.pos_output = nn.Conv2d(filter_sizes[5], 1, kernel_size=2)
@@ -100,24 +121,22 @@ class LGDM(LanguageGraspModel):
         img = F.relu(self.conv3(img))
 
         # Combine textual features with the visual features
-        # img = torch.clone(img).detach() + y
+        img = torch.clone(img).detach() + y
 
-        img = F.relu(self.convt1(img))
-        img = F.relu(self.convt2(img))
-        img = F.relu(self.convt3(img))
-        
+        # Flatten img and using 2 fully connected layers to find embedding with size model_channels*4
+        img = img.view(-1, 2888)
+        img = F.relu(self.fc1(img))
+        img = self.fc2(img)
 
-        pos_output = self.pos_output(img)
-        cos_output = self.cos_output(img)
-        sin_output = self.sin_output(img)
-        width_output = self.width_output(img)
+        output = self.unet(x, t, img)
+
 
         # Combine noise features from forward process to the guiding region
         # pos_output = x + pos_output
 
-        self.pos_output_str, self.cos_output_str, self.sin_output_str, self.width_output_str = pos_output, cos_output, sin_output, width_output
+        # self.pos_output_str, self.cos_output_str, self.sin_output_str, self.width_output_str = pos_output, cos_output, sin_output, width_output
 
-        return pos_output, cos_output, sin_output, width_output
+        return output
 
     def _process_attention_mask(self, image_atts):
         bs, _ = image_atts.data.shape
@@ -138,8 +157,7 @@ class LGDM(LanguageGraspModel):
         
         return full_image_atts
 
-    def compute_loss(self, yc, pos_pred, cos_pred, sin_pred, width_pred):
-        y_pos, y_cos, y_sin, y_width = yc[0], yc[1], yc[2], yc[3]
+    def compute_loss(self, yc, output):
 
         # if sample is None:
         #     pos_pred, cos_pred, sin_pred, width_pred = self.pos_output_str, self.cos_output_str, self.sin_output_str, self.width_output_str
@@ -147,10 +165,24 @@ class LGDM(LanguageGraspModel):
         #     pos_pred = sample
         #     cos_pred, sin_pred, width_pred = self.cos_output_str, self.sin_output_str, self.width_output_str
 
-        p_loss = F.mse_loss(pos_pred, y_pos)
-        cos_loss = F.mse_loss(cos_pred, y_cos)
-        sin_loss = F.mse_loss(sin_pred, y_sin)
-        width_loss = F.mse_loss(width_pred, y_width)
+        # Split output (8,4,224,224) into 4 tensors pos_pred, cos_pred, sin_pred, width_pred
+        pos_pred = output[:, 0, :, :].unsqueeze(1)
+        cos_pred = output[:, 1, :, :].unsqueeze(1)
+        sin_pred = output[:, 2, :, :].unsqueeze(1)
+        width_pred = output[:, 3, :, :].unsqueeze(1)
+
+        # Split yc (8,4,224,224) into 4 tensors pos_gt, cos_gt, sin_gt, width_gt
+        pos_gt = yc[:, 0, :, :].unsqueeze(1)
+        cos_gt = yc[:, 1, :, :].unsqueeze(1)
+        sin_gt = yc[:, 2, :, :].unsqueeze(1)
+        width_gt = yc[:, 3, :, :].unsqueeze(1)
+
+        # Compute loss
+        p_loss = F.mse_loss(pos_pred, pos_gt)
+        cos_loss = F.mse_loss(cos_pred, cos_gt)
+        sin_loss = F.mse_loss(sin_pred, sin_gt)
+        width_loss = F.mse_loss(width_pred, width_gt)
+
 
         # Get contrastive loss
         # contr_loss = self._get_contrastive_loss(self.full_image_atts.to(y_pos.device), y_pos)

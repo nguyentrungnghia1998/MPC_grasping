@@ -3,8 +3,8 @@ opencv-python
 matplotlib
 scikit-image
 imageio
-torch
-torchvision
+# torch
+# torchvision
 torchsummary
 tensorboardX
 pyrealsense2
