@@ -391,22 +391,23 @@ def run():
             tb.add_scalar('train_loss/' + n, l, epoch)
 
         # Run Validation
-        logging.info('Validating...')
-        test_results = validate(net, diffusion, schedule_sampler, device, val_data, args.iou_threshold)
-        logging.info('%d/%d = %f' % (test_results['correct'], test_results['correct'] + test_results['failed'],
-                                     test_results['correct'] / (test_results['correct'] + test_results['failed'])))
+        if epoch % 5 == 0:
+            logging.info('Validating...')
+            test_results = validate(net, diffusion, schedule_sampler, device, val_data, args.iou_threshold)
+            logging.info('%d/%d = %f' % (test_results['correct'], test_results['correct'] + test_results['failed'],
+                                        test_results['correct'] / (test_results['correct'] + test_results['failed'])))
 
-        # Log validation results to tensorbaord
-        tb.add_scalar('loss/IOU', test_results['correct'] / (test_results['correct'] + test_results['failed']), epoch)
-        tb.add_scalar('loss/val_loss', test_results['loss'], epoch)
-        for n, l in test_results['losses'].items():
-            tb.add_scalar('val_loss/' + n, l, epoch)
+            # Log validation results to tensorbaord
+            tb.add_scalar('loss/IOU', test_results['correct'] / (test_results['correct'] + test_results['failed']), epoch)
+            tb.add_scalar('loss/val_loss', test_results['loss'], epoch)
+            for n, l in test_results['losses'].items():
+                tb.add_scalar('val_loss/' + n, l, epoch)
 
-        # Save best performing network
-        iou = test_results['correct'] / (test_results['correct'] + test_results['failed'])
-        if iou > best_iou or epoch == 0 or (epoch % 10) == 0:
-            torch.save(net, os.path.join(save_folder, 'epoch_%02d_iou_%0.2f' % (epoch, iou)))
-            best_iou = iou
+            # Save best performing network
+            iou = test_results['correct'] / (test_results['correct'] + test_results['failed'])
+            if iou > best_iou:
+                torch.save(net, os.path.join(save_folder, 'epoch_%02d_iou_%0.2f' % (epoch, iou)))
+                best_iou = iou
 
 
 if __name__ == '__main__':
