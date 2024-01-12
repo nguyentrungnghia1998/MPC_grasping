@@ -10,7 +10,7 @@ from inference.models.grasp_model import LanguageGraspModel
 import inference.models.lgdm.albef.utils as utils
 from inference.models.lgdm.albef.models.tokenization_bert import BertTokenizer
 from inference.models.lgdm.albef.models.model_retrieval import ALBEF
-from diffusion.unet import UNetModel
+from models.lightgrad.custom import LightGrad_Unet
 
 filter_sizes = [32, 16, 8, 8, 16, 32]
 kernel_sizes = [9, 5, 3, 3, 5, 9]
@@ -41,29 +41,7 @@ class LGDM(LanguageGraspModel):
             # nn.GELU(),
         )
         # Define U-Net model for Diffusion Model, config same as stable diffusion
-        self.unet = UNetModel(
-            image_size=224,
-            in_channels=4,
-            model_channels=channel_size,
-            out_channels=4,
-            num_res_blocks=2,
-            attention_resolutions=tuple([14]),
-            dropout=dropout,
-            channel_mult=(1,1,2,2,4,4),
-            use_checkpoint=False,
-            use_fp16=False,
-            num_heads=1,
-            num_head_channels=-1,
-            num_heads_upsample=-1,
-            use_scale_shift_norm=False,
-            resblock_updown=False,
-            use_new_attention_order=False
-        )
-        
-        self.pos_output = nn.Conv2d(filter_sizes[5], 1, kernel_size=2)
-        self.cos_output = nn.Conv2d(filter_sizes[5], 1, kernel_size=2)
-        self.sin_output = nn.Conv2d(filter_sizes[5], 1, kernel_size=2)
-        self.width_output = nn.Conv2d(filter_sizes[5], 1, kernel_size=2)
+        self.unet = LightGrad_Unet(num_classes=4, time_dim=128)
 
         # Setup language modality
         self.clip_version = clip_version
