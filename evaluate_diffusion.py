@@ -147,6 +147,8 @@ if __name__ == '__main__':
                 pass
 
         start_time = time.time()
+        
+        stt = 0
 
         with torch.no_grad():
             for idx, (x, y, didx, rot, zoom, prompt, query) in enumerate(test_data):
@@ -183,12 +185,14 @@ if __name__ == '__main__':
                 if args.vis:
                     save_results(
                         rgb_img=test_data.dataset.get_rgb(didx, rot, zoom, normalise=False),
-                        depth_img=test_data.dataset.get_depth(didx, rot, zoom),
+                        depth_img=None,
                         grasp_q_img=q_img,
                         grasp_angle_img=ang_img,
                         no_grasps=args.n_grasps,
-                        grasp_width_img=width_img
+                        grasp_width_img=width_img,
+                        index = stt
                     )
+                    stt += 1
 
         avg_time = (time.time() - start_time) / len(test_data)
         logging.info('Average evaluation time per image: {}ms'.format(avg_time * 1000))
