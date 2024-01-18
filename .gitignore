@@ -119,3 +119,5 @@ trained-models/lgdm
 trained-models/
 weights/
 index.*
+
+test_samples/

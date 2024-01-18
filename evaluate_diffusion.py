@@ -19,17 +19,17 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Evaluate networks')
 
     # Network
-    parser.add_argument('--network', metavar='N', type=str, nargs='+',
+    parser.add_argument('--network', metavar='N', type=str, nargs='+', default=['logs/240116_1823_training_grasp_anything_ldgm/epoch_09_iou_0.16'],
                         help='Path to saved networks to evaluate')
     parser.add_argument('--input-size', type=int, default=224,
                         help='Input image size for the network')
 
     # Dataset
-    parser.add_argument('--dataset', type=str,
+    parser.add_argument('--dataset', type=str, default='grasp-anywhere',
                         help='Dataset Name ("cornell" or "jaquard")')
-    parser.add_argument('--dataset-path', type=str,
+    parser.add_argument('--dataset-path', type=str, default='data/grasp-anything',
                         help='Path to dataset')
-    parser.add_argument('--use-depth', type=int, default=1,
+    parser.add_argument('--use-depth', type=int, default=0,
                         help='Use Depth image for evaluation (1/0)')
     parser.add_argument('--use-rgb', type=int, default=1,
                         help='Use RGB image for evaluation (1/0)')
@@ -49,21 +49,21 @@ def parse_args():
                         help='Number of grasps to consider per image')
     parser.add_argument('--iou-threshold', type=float, default=0.25,
                         help='Threshold for IOU matching')
-    parser.add_argument('--iou-eval', action='store_true',
+    parser.add_argument('--iou-eval', action='store_true', default=True,
                         help='Compute success based on IoU metric.')
     parser.add_argument('--jacquard-output', action='store_true',
                         help='Jacquard-dataset style output')
 
     # Misc.
-    parser.add_argument('--vis', action='store_true',
+    parser.add_argument('--vis', action='store_true', default=True,
                         help='Visualise the network output')
     parser.add_argument('--cpu', dest='force_cpu', action='store_true', default=False,
                         help='Force code to run in CPU mode')
     parser.add_argument('--random-seed', type=int, default=123,
                         help='Random seed for numpy')
-    parser.add_argument('--seen', type=int, default=1,
+    parser.add_argument('--seen', type=int, default=0,
                         help='Flag for using seen classes, only work for Grasp-Anything dataset') 
-    parser.add_argument('--add-file-path', type=str, default='data/grasp-anywhere',
+    parser.add_argument('--add-file-path', type=str, default='data/grasp-anywhere/unseen',
                         help='Specific for Grasp-Anywhere')
     
     args = parser.parse_args()

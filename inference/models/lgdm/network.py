@@ -100,7 +100,7 @@ class LGDM(LanguageGraspModel):
         img = F.relu(self.conv3(img))
 
         # Combine textual features with the visual features
-        # img = torch.clone(img).detach() + y
+        img = torch.clone(img).detach() + y
 
         img = F.relu(self.convt1(img))
         img = F.relu(self.convt2(img))
